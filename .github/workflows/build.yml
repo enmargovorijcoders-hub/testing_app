@@ -1,0 +1,57 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Accept Android licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Set up Gradle files for whatever app folders exist
+        run: |
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          EOF
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          kotlin.code.style=official
+          EOF
+          {
+            echo 'pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }'
+            echo 'dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }'
+            echo 'rootProject.name = "tv-apps"'
+            for d in */; do
+              if [ -f "${d}build.gradle.kts" ]; then echo "include(\":${d%/}\")"; fi
+            done
+          } > settings.gradle.kts
+          cat settings.gradle.kts
+
+      - name: Build APKs
+        run: gradle assembleRelease --no-daemon --continue
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: apks
+          path: "**/build/outputs/apk/release/*.apk"
